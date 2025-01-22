@@ -21,15 +21,18 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.brillio.app_dependency_discovery_api.config.Config;
 import com.brillio.app_dependency_discovery_api.utilities.ApprovalGates;
+
 import com.brillio.app_dependency_discovery_api.utilities.ArtifactManagement;
 import com.brillio.app_dependency_discovery_api.utilities.CloudInfraAndContainerization;
 import com.brillio.app_dependency_discovery_api.utilities.ComplexityClassifier;
 import com.brillio.app_dependency_discovery_api.utilities.ErrorHandlingAndRetryLogic;
 import com.brillio.app_dependency_discovery_api.utilities.ExternalIntegrations;
+import com.brillio.app_dependency_discovery_api.utilities.GitRepoAnalyzer;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfEnvironmentsOrDeployments;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfLibraries;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfParallelExecution;
 import com.brillio.app_dependency_discovery_api.utilities.PipelineScriptComplexity;
+import com.brillio.app_dependency_discovery_api.utilities.PomFileProcessor;
 import com.brillio.app_dependency_discovery_api.utilities.Repository;
 import com.brillio.app_dependency_discovery_api.utilities.SecurityAndComplianceChecks;
 import com.brillio.app_dependency_discovery_api.utilities.TestingAndCodeQualityChecks;
@@ -46,6 +49,7 @@ public class GitService {
 	private String localDirectory;
 	private String jenkinsfilePath;
 	private Object serviceParamsMap; 
+	//private GitRepoAnalyzer analyzer;
     Map<String, String> configFiles = new HashMap<>();
 	// Clone the repository into a folder named after the repo
 	public void cloneRepository(String repoUrl) throws Exception {
@@ -306,9 +310,9 @@ public class GitService {
 	            // Recursively search for Jenkinsfiles in the cloned repository
 	            File rootDir = tempDir;
 	            List<File> jenkinsfiles = findJenkinsfiles(rootDir);
-
+	            
 	            Map<String, Object> serviceParamsMap = new HashMap<>(); // To store service details by service name
-
+	            
 	            if (!jenkinsfiles.isEmpty()) {
 	                for (File jenkinsFile : jenkinsfiles) {
 	                    String serviceName = getServiceName(jenkinsFile);  // Determine service name based on Jenkinsfile directory
@@ -324,7 +328,16 @@ public class GitService {
 
 	                    // Process configuration files (Dockerfile, pom.xml, build.gradle, etc.)
 	                    File serviceDir = jenkinsFile.getParentFile();
-
+//	                    GitRepoAnalyzer analyzer = new GitRepoAnalyzer();
+//	                    List<Map<String, String>> analyzedData = analyzer.analyzeRepo(localDirectory);
+	                    
+	                    //call git repo analyser
+	                    Map<String, Object> repoStructure = getRepoStructure(new File(localDirectory));
+	                    serviceDetails.put("repoStructure", repoStructure);
+	                    
+	                    // Add serviceDetails to the main map
+	                    serviceParamsMap.put(serviceName, serviceDetails);
+	                    
 	                    // Call VariablesFinder methods after cloning the repo and getting the Jenkinsfiles
 	                    List<String[]> variableContentLinesWithDollar = VariablesFinder.findLinesWithDollarSignEnvironmentVariables(localDirectory);
 	                    int environmentVariablesLinesFilePath = VariablesFinder.writeOutputToFile(localDirectory, variableContentLinesWithDollar);
@@ -335,6 +348,8 @@ public class GitService {
 	                    int totalVariablesCount = variablesList.size();
 	                    String variablesListStr = String.join(", ", variablesList);
 
+	                    
+	                    
 	                    // Artifactory configuration
 	                    ArtifactManagement.ArtifactoryResult artifactoryResult = ArtifactManagement.checkArtifactoryInJenkinsfile(jenkinsfileContent);
 	                    boolean isArtifactoryPresent = artifactoryResult.isPresent;
@@ -362,6 +377,8 @@ public class GitService {
 	                    // Get the complexity of the pipeline
 	                    String complexityClassification = ComplexityClassifier.classifyJenkinsfile(jenkinsfileContent);
 	                    String agentDetails= extractAgentDetails(jenkinsfileContent);
+	                    
+	             
 
 	                    // Get list of external integration
 	                    List<String> toolsFirstWords = ExternalIntegrations.extractToolsSectionFirstWords(jenkinsfilePath);
@@ -386,10 +403,28 @@ public class GitService {
 
 	                    // Number of Environments/Deployments
 	                    int deployStageCount = NumberOfEnvironmentsOrDeployments.countDeployStages(jenkinsfileContent);
+	                    List<File> artifactFiles = findArtifactFiles(rootDir);
+	    	            String appType = detectApplicationType(tempDir);
+	    	            serviceDetails.put("applicationType", appType);
+	    	            
+	    	            String appName= PomFileProcessor.getServiceNameFromPom(rootDir);
+	    	            serviceDetails.put("appName", appName);
+	    	            
+	    	            List<Map<String, Object>> artifactDetailsList = new ArrayList<>();
+	    	            for (File artifactFile : artifactFiles) {
+	    	                artifactDetailsList.add(extractArtifactDetails(artifactFile));  // Extract artifact details
+	    	            }
+	    	            
+	    	           
+	    	            serviceDetails.put("artifacts", artifactDetailsList);  
+
+//	    	            repoDetails.put("artifacts", artifactDetailsList);
+	    	            boolean isMarvelPipeline = isMarvelPipelineRunning(rootDir);  // New method to check for Marvel pipeline
+	    	            serviceDetails.put("isMarvelPipeline", isMarvelPipeline? "Yes" :"No" );
 
 	                    // Add all pipeline and external integration data
 	                    serviceDetails.put("noOfStages", jobCount);
-	                    serviceDetails.put("hasDockerfile", checkForDockerfile(jenkinsFile.getParentFile()));
+	                    serviceDetails.put("hasDockerfile", checkForDockerfile(jenkinsFile.getParentFile())? "Yes" :"No");
 	                    serviceDetails.put("parallelCount", parallelCount);
 	                    serviceDetails.put("branches", getBranches(git));
 	                    serviceDetails.put("pipelineType", PipelineScriptComplexity.identifyPipelineType(jenkinsfileContent));
@@ -407,8 +442,12 @@ public class GitService {
 	                    serviceDetails.put("repositoryVar", repositoryList.toString());
 	                    serviceDetails.put("variablePassedVar", totalVariablesCount);
 	                    serviceDetails.put("configurationParametersOrValuesVar", variablesListStr);
-	                    serviceDetails.put("complexityVar", complexityClassification);
+	                    //serviceDetails.put("complexityVar", complexityClassification);
 	                    serviceDetails.put("agentDetails", agentDetails);
+	     
+	                  
+	                    
+//	                    serviceDetails.put("analyzedData", analyzedData);
 
 	                    // Add this service details to the map with the service name as the key
 	                    serviceParamsMap.put(serviceName, serviceDetails);
@@ -503,155 +542,6 @@ public class GitService {
 	    }
 
 
-//	    private int countTriggers(String jenkinsfileContent) {
-//	        // Count occurrences of triggers in the Jenkinsfile
-//	        return (int) Pattern.compile("triggers\\s?\\{.*?\\}", Pattern.DOTALL).matcher(jenkinsfileContent).results().count();
-//	    }
-
-//	    private List<String> extractTriggers(String jenkinsfileContent) {
-//	        // Extract trigger definitions from the Jenkinsfile
-//	        List<String> triggers = new ArrayList<>();
-//	        Matcher matcher = Pattern.compile("triggers\\s?\\{(.*?)\\}", Pattern.DOTALL).matcher(jenkinsfileContent);
-//	        while (matcher.find()) {
-//	            triggers.add(matcher.group(1).trim());
-//	        }
-//	        return triggers;
-//	    }
-
-	 // Function to extract security and compliance tools from the Jenkinsfile
-//	    private List<String> extractSecurityTools(String jenkinsfileContent) {
-//	        List<String> securityTools = new ArrayList<>();
-//	        
-//	        // Check for any security tools in the Jenkinsfile (matching from predefined list SECURITY_TOOLS_LIST)
-//	        if (jenkinsfileContent.contains("checkmarx")) securityTools.add("Checkmarx");
-//	        if (jenkinsfileContent.contains("sonarQube")) securityTools.add("SonarQube");
-//	        if (jenkinsfileContent.contains("fortify")) securityTools.add("Fortify");
-//	        // Add other tools as necessary from SECURITY_TOOLS_LIST
-//	        
-//	        return securityTools;
-//	    }
-
-	    // Function to extract cloud infrastructure and containerization details from the Jenkinsfile
-//	    private List<String> extractCloudInfrastructure(String jenkinsfileContent) {
-//	        List<String> cloudInfrastructure = new ArrayList<>();
-//	        List<String> containerizationToolsList = List.of("docker", "kubectl", "openshift");
-//	        List<String> foundTools = new ArrayList<>();
-//	        for (String tool : containerizationToolsList) {
-//	            if (jenkinsfileContent.contains(tool)) {
-//	                foundTools.add(tool);
-//	            }
-//	        }
-//	        return foundTools;
-//	        
-//	    }
-
-	    // Function to extract repository versioning tools from the Jenkinsfile
-//	    private List<String> extractRepositories(String jenkinsfileContent) {
-//	        List<String> repositories = new ArrayList<>();
-//	        
-//	        // Check for references to versioning tools such as Git
-//	        if (jenkinsfileContent.contains("git")) repositories.add("Git");
-//	        if (jenkinsfileContent.contains("svn")) repositories.add("SVN");
-//	        if (jenkinsfileContent.contains("maven")) repositories.add("Maven");
-//	        if (jenkinsfileContent.contains("gradle")) repositories.add("Gradle");
-//	        // Add other versioning tools as necessary from VERSIONING_TOOLS_DICT
-//	        
-//	        return repositories;
-//	    }
-
-	    // Function to count the number of deployment stages (stages containing the word 'deploy')
-//	    private int countDeploymentStages(String jenkinsfileContent) {
-//	        // Count stages with the keyword 'deploy'
-//	        return (int) Pattern.compile("stage\\s?\\{(.*?)deploy(.*?)\\}", Pattern.DOTALL).matcher(jenkinsfileContent).results().count();
-//	    }
-
-
-//	    private int countTryBlocks(String jenkinsfileContent) {
-//	        // Count try blocks in the Jenkinsfile
-//	        return (int) Pattern.compile("try\\s?\\{").matcher(jenkinsfileContent).results().count();
-//	    }
-
-//	    private int countRetryBlocks(String jenkinsfileContent) {
-//	        // Count retry blocks in the Jenkinsfile
-//	        return (int) Pattern.compile("retry\\s?\\{").matcher(jenkinsfileContent).results().count();
-//	    }
-
-//	    private int countApprovalStages(String jenkinsfileContent) {
-//	        // Count approval stages (input steps) in the Jenkinsfile
-//	        return (int) Pattern.compile("input\\s?\\{").matcher(jenkinsfileContent).results().count();
-//	    }
-
-//	    private int countParallelStages(String jenkinsfileContent) {
-//	        // Count parallel execution blocks in the Jenkinsfile
-//	        return (int) Pattern.compile("parallel\\s?\\{").matcher(jenkinsfileContent).results().count();
-//	    }
-
-
-//	    private String getPipelineComplexity(String jenkinsfileContent) {
-//	    	 // Regular expression to match any library declaration
-//	        Pattern libraryPattern = Pattern.compile("^\\s*library\\s+\"[^\"]+\"", Pattern.MULTILINE);
-//
-//	        // Check if the Jenkinsfile is 'Complex'
-//	        Matcher libraryMatcher = libraryPattern.matcher(jenkinsfileContent);
-//	        if (libraryMatcher.find()) {
-//	            return "Complex";
-//	        }
-//
-//	        // Check if the Jenkinsfile is 'Medium'
-//	        if (jenkinsfileContent.contains("node {") || jenkinsfileContent.contains("sh") || jenkinsfileContent.contains("bat")) {
-//	            return "Medium";
-//	        }
-//
-//	        // Check if the Jenkinsfile is 'Simple'
-//	        if (jenkinsfileContent.contains("pipeline {") && !jenkinsfileContent.contains("sh") && !jenkinsfileContent.contains("bat")) {
-//	            return "Simple";
-//	        }
-//
-//	        // If none of the above conditions are met, classify as 'Unknown'
-//	        return "Unknown";
-//	    }
-
-//	    private List<String> extractExternalIntegrations(String jenkinsfileContent) {
-//	    	 List<String> lines = new ArrayList<>();
-//	    	    
-//	    	    // Split the Jenkinsfile content into lines
-//	    	    String[] contentLines = jenkinsfileContent.split("\n");
-//	    	    
-//	    	    // Add each line to the list
-//	    	    for (String line : contentLines) {
-//	    	        lines.add(line.trim());
-//	    	    }
-//
-//	    	    boolean toolsSection = false;
-//	    	    List<String> firstWords = new ArrayList<>(); // Initialize as an empty list
-//
-//	    	    for (String line : lines) {
-//	    	        String strippedLine = line.trim();
-//	    	        if (strippedLine.startsWith("tools {")) {
-//	    	            toolsSection = true;
-//	    	            continue;
-//	    	        }
-//	    	        if (toolsSection) {
-//	    	            if (strippedLine.equals("}")) {
-//	    	                break;
-//	    	            }
-//	    	            String[] words = strippedLine.split("\\s+");
-//	    	            if (words.length > 0) {
-//	    	                firstWords.add(words[0]);
-//	    	            }
-//	    	        }
-//	    	    }
-//
-//	    	    return firstWords; //
-//	    }
-
-//	    private List<String> extractTestingTools(String jenkinsfileContent) {
-//	        // Check for testing tools from a predefined list
-//	        List<String> tools = new ArrayList<>();
-//	        if (jenkinsfileContent.contains("sh 'mvn test'")) tools.add("Maven");
-//	        return tools;
-//	    }
-
 
 
 	
@@ -712,5 +602,346 @@ public class GitService {
 	        directory.delete();
 	    }
 	    
-	   
+//	    private List<Map<String, Object>> fetchArtifactDetails(String repoPath) throws IOException {
+//	        List<Map<String, Object>> artifactDetailsList = new ArrayList<>();
+//	        
+//	        // Navigate through the artifacts directory
+//	        File artifactsDir = new File(repoPath + "/artifacts");
+//	        if (artifactsDir.exists() && artifactsDir.isDirectory()) {
+//	            File[] serviceDirs = artifactsDir.listFiles(File::isDirectory);
+//	            
+//	            if (serviceDirs != null) {
+//	                for (File serviceDir : serviceDirs) {
+//	                    String serviceName = serviceDir.getName();
+//	                    File[] artifactFiles = serviceDir.listFiles((dir, name) -> name.endsWith(".jar") || name.endsWith(".zip"));
+//	                    
+//	                    if (artifactFiles != null) {
+//	                        for (File artifact : artifactFiles) {
+//	                            Map<String, Object> artifactDetails = new HashMap<>();
+//	                            String artifactName = artifact.getName();
+//	                            String artifactPath = artifact.getAbsolutePath();
+//	                            
+//	                            // Assuming category can be inferred from file extensions or naming conventions
+//	                            String category = artifactName.contains(".jar") ? "Jar" : "Zip";
+//	                            
+//	                            artifactDetails.put("artifactName", artifactName);
+//	                            artifactDetails.put("artifactPath", artifactPath);
+//	                            artifactDetails.put("category", category);
+//	                            artifactDetails.put("artifactLocation", serviceDir.getAbsolutePath());
+//	                            
+//	                            // Add unit test details
+//	                            Map<String, Object> unitTestDetails = fetchUnitTestDetails(serviceDir);
+//	                            artifactDetails.put("unitTest", unitTestDetails.get("unitTest"));
+//	                            artifactDetails.put("unitTestCommands", unitTestDetails.get("unitTestCommands"));
+//	                            
+//	                            // Add scan tools details
+//	                            Map<String, Object> scanDetails = fetchScanDetails(serviceDir);
+//	                            artifactDetails.put("scanTest", scanDetails.get("scanTest"));
+//	                            artifactDetails.put("scanTools", scanDetails.get("scanTools"));
+//	                            
+//	                            artifactDetailsList.add(artifactDetails);
+//	                        }
+//	                    }
+//	                }
+//	            }
+//	        }
+//	        return artifactDetailsList;
+//	    }
+
+	    private Map<String, Object> fetchUnitTestDetails(File serviceDir) throws IOException {
+	        Map<String, Object> unitTestDetails = new HashMap<>();
+	        String unitTestCommand = "";
+	        
+	        // Check for Maven (pom.xml)
+	        File pomXml = new File(serviceDir, "pom.xml");
+	        if (pomXml.exists()) {
+	            // Search for test dependencies (JUnit or TestNG)
+	            unitTestCommand = "mvn test";
+	            unitTestDetails.put("unitTest", "JUnit / TestNG (Maven)");
+	            unitTestDetails.put("unitTestCommands", unitTestCommand);
+	        }
+	        
+	        // Check for Gradle (build.gradle)
+	        File buildGradle = new File(serviceDir, "build.gradle");
+	        if (buildGradle.exists()) {
+	            // Search for test dependencies (JUnit or TestNG)
+	            unitTestCommand = "gradle test";
+	            unitTestDetails.put("unitTest", "JUnit / TestNG (Gradle)");
+	            unitTestDetails.put("unitTestCommands", unitTestCommand);
+	        }
+	        
+	        return unitTestDetails;
+	    }
+
+	    private Map<String, Object> fetchScanDetails(File serviceDir) {
+	        Map<String, Object> scanDetails = new HashMap<>();
+	        String scanTest = "";
+	        String scanTools = "";
+	        
+	        // Example: Check for a security config or scanning tool integration in the Jenkinsfile or other config files
+	        File jenkinsfile = new File(serviceDir, "Jenkinsfile");
+	        if (jenkinsfile.exists()) {
+	            // Check for security scanning tools or configurations
+	            scanTest = "Security Scan Present";
+	            scanTools = "SonarQube, OWASP Dependency-Check";  // Example tools
+	            
+	            scanDetails.put("scanTest", scanTest);
+	            scanDetails.put("scanTools", scanTools);
+	        }
+	        
+	        return scanDetails;
+	    }
+	    
+	    private List<File> findArtifactFiles(File dir) {
+	        List<File> artifactFiles = new ArrayList<>();
+
+	        // Traverse the directory recursively to find artifact files (jar, zip, etc.)
+	        File[] files = dir.listFiles();
+	        if (files != null) {
+	            for (File file : files) {
+	                if (file.isDirectory()) {
+	                    artifactFiles.addAll(findArtifactFiles(file));  // Recursively search subdirectories
+	                } else if (file.getName().endsWith(".jar") || file.getName().endsWith(".zip")) {
+	                    artifactFiles.add(file);  // Add artifact file if it matches criteria
+	                }
+	            }
+	        }
+
+	        return artifactFiles;
+	    }
+
+
+	    private static Map<String, Object> extractArtifactDetails(File artifactFile) throws IOException {
+	        Map<String, Object> artifactDetails = new HashMap<>();
+	        String artifactName = artifactFile.getName();
+	        String artifactPath = artifactFile.getAbsolutePath();
+
+	        // Assuming artifact category is determined by file extension
+	        String category = artifactName.endsWith(".jar") ? "Jar" : "Zip";
+
+	        // Collect artifact details
+	        artifactDetails.put("artifactName", artifactName);
+	        artifactDetails.put("artifactPath", artifactPath);
+	        artifactDetails.put("category", category);
+	        artifactDetails.put("artifactLocation", artifactFile.getParentFile().getAbsolutePath());
+
+	        // Look for unit test files and scan tools in the same directory (if any)
+	        File parentDir = artifactFile.getParentFile();
+
+	        return artifactDetails;
+	    }
+	    // Extract Maven unit test command from pom.xml
+	    private String extractMavenUnitTestCommand(File pomXml) throws IOException {
+	        List<String> lines = Files.readAllLines(pomXml.toPath());
+	        for (String line : lines) {
+	            if (line.contains("<goal>test</goal>")) {
+	                return "mvn test";
+	            }
+	        }
+	        return "Unknown Maven test command";
+	    }
+
+	    // Extract Gradle unit test command from build.gradle
+	    private String extractGradleUnitTestCommand(File gradleFile) throws IOException {
+	        List<String> lines = Files.readAllLines(gradleFile.toPath());
+	        for (String line : lines) {
+	            if (line.contains("test")) {
+	                return "gradle test";
+	            }
+	        }
+	        return "Unknown Gradle test command";
+	    }
+
+	    // Extract Docker unit test command from Dockerfile
+	    private String extractDockerUnitTestCommand(File dockerFile) throws IOException {
+	        List<String> lines = Files.readAllLines(dockerFile.toPath());
+	        for (String line : lines) {
+	            if (line.contains("RUN") && line.contains("test")) {
+	                return "docker run -it <image>";
+	            }
+	        }
+	        return "Unknown Docker test command";
+	    }
+
+	    // Extract scan test tool (e.g., SonarQube) from pom.xml or build.gradle
+	    private String extractScanTest(File file) throws IOException {
+	        List<String> lines = Files.readAllLines(file.toPath());
+	        if (file.getName().equals("pom.xml")) {
+	            for (String line : lines) {
+	                if (line.contains("<sonar:sonar>") || line.contains("sonar")) {
+	                    return "SonarQube";
+	                }
+	            }
+	        } else if (file.getName().equals("build.gradle")) {
+	            for (String line : lines) {
+	                if (line.contains("sonar")) {
+	                    return "SonarQube";
+	                }
+	            }
+	        }
+	        return "No scan test configured";
+	    }
+
+	    // Extract scan tools (e.g., SonarQube Scanner, Trivy) from pom.xml or build.gradle
+	    private String extractScanTools(File file) throws IOException {
+	        List<String> lines = Files.readAllLines(file.toPath());
+	        if (file.getName().equals("pom.xml")) {
+	            for (String line : lines) {
+	                if (line.contains("sonar:sonar") || line.contains("sonar-scanner")) {
+	                    return "SonarQube Scanner";
+	                }
+	            }
+	        } else if (file.getName().equals("build.gradle")) {
+	            for (String line : lines) {
+	                if (line.contains("sonar")) {
+	                    return "SonarQube Scanner";
+	                }
+	            }
+	        } else if (file.getName().equals("Dockerfile")) {
+	            for (String line : lines) {
+	                if (line.contains("Trivy")) {
+	                    return "Trivy";
+	                }
+	            }
+	        }
+	        return "No scan tools configured";
+	    }
+	    
+	    private String detectApplicationType(File repoDir) {
+	        File[] files = repoDir.listFiles();
+	        boolean hasMultipleSubmodules = false;
+	        boolean hasSingleBuildConfig = false;
+	        boolean hasMultipleBuildConfigs = false;
+	        boolean hasDockerfile = false;
+
+	        if (files != null) {
+	            for (File file : files) {
+	                if (file.isDirectory()) {
+	                    // Check for submodules with independent build configurations (pom.xml, build.gradle)
+	                    if (new File(file, "pom.xml").exists() || new File(file, "build.gradle").exists()) {
+	                        hasMultipleBuildConfigs = true;
+	                    }
+
+	                    // Check if the submodules have Dockerfiles or Kubernetes config files (Microservices can use Docker)
+	                    if (new File(file, "Dockerfile").exists() || new File(file, "k8s").exists()) {
+	                        hasDockerfile = true;
+	                    }
+	                } else if (file.getName().equals("pom.xml") || file.getName().equals("build.gradle")) {
+	                    hasSingleBuildConfig = true;
+	                }
+	            }
+	        }
+
+	        // Basic heuristic for Monolithic vs Microservices
+	        if (hasMultipleBuildConfigs) {
+	            return "Microservices";
+	        }
+
+	        if (hasSingleBuildConfig && !hasMultipleBuildConfigs) {
+	            return "Monolithic";
+	        }
+
+	        // Additional checks can be made for Dockerfiles or Kubernetes configurations
+	        if (hasDockerfile) {
+	            return "Microservices (with Docker)";
+	        }
+
+	        return "Unknown";
+	    }
+
+	    private boolean isMarvelPipelineRunning(File rootDir) {
+	        // 1. Check for environment variable MARVEL_PIPELINE
+	        String marvelEnvVar = System.getenv("MARVEL_PIPELINE");
+	        if (marvelEnvVar != null && !marvelEnvVar.isEmpty()) {
+	            return true; // Marvel pipeline environment variable is set
+	        }
+
+	        // 2. Check for the presence of Marvel-specific files
+	        if (hasMarvelConfigFiles(rootDir)) {
+	            return true; // Found Marvel-specific configuration files (.marvel-pipeline, marvel.yaml, etc.)
+	        }
+
+	        // 3. Check for Marvel directory in the root of the project
+	        if (hasMarvelDirectory(rootDir)) {
+	            return true; // Found marvel/ directory
+	        }
+
+	        // 4. Check for Marvel-specific steps in Jenkinsfile or other CI configuration files
+	        if (containsMarvelStepsInJenkinsFile(rootDir)) {
+	            return true; // Found Marvel-related steps in Jenkinsfile
+	        }
+
+	        // If none of the above conditions are met, the application is likely not running in Marvel pipeline
+	        return false;
+	    }
+
+	    private boolean hasMarvelConfigFiles(File rootDir) {
+	        // Check for .marvel-pipeline file
+	        File marvelFile = new File(rootDir, ".marvel-pipeline");
+	        if (marvelFile.exists()) {
+	            return true; // Found .marvel-pipeline file
+	        }
+
+	        // Check for marvel.yaml or marvel.json
+	        File marvelYamlFile = new File(rootDir, "marvel.yaml");
+	        if (marvelYamlFile.exists()) {
+	            return true; // Found marvel.yaml file
+	        }
+
+	        File marvelJsonFile = new File(rootDir, "marvel.json");
+	        if (marvelJsonFile.exists()) {
+	            return true; // Found marvel.json file
+	        }
+
+	        return false;
+	    }
+
+	    private boolean hasMarvelDirectory(File rootDir) {
+	        // Check if marvel directory exists
+	        File marvelDir = new File(rootDir, "marvel");
+	        return marvelDir.exists() && marvelDir.isDirectory();
+	    }
+
+	    private boolean containsMarvelStepsInJenkinsFile(File rootDir) {
+	        File jenkinsFile = new File(rootDir, "Jenkinsfile");
+	        if (jenkinsFile.exists()) {
+	            try {
+	                String content = new String(Files.readAllBytes(jenkinsFile.toPath()), StandardCharsets.UTF_8);
+	                // Check for specific Marvel step in Jenkinsfile
+	                return content.contains("marvelPipelineStep");
+	            } catch (IOException e) {
+	                e.printStackTrace();
+	            }
+	        }
+	        return false;
+	    }
+
+	    private Map<String, Object> getRepoStructure(File rootDir) {
+	        Map<String, Object> repoStructure = new HashMap<>();
+	        
+	        // Start with the root directory and explore all subdirectories
+	        exploreDirectoryStructure(rootDir, repoStructure);
+	        
+	        return repoStructure;
+	    }
+
+	    private void exploreDirectoryStructure(File currentDir, Map<String, Object> structure) {
+	        // Get all files and directories in the current directory
+	        File[] files = currentDir.listFiles();
+	        
+	        if (files != null) {
+	            for (File file : files) {
+	                // If it's a directory, we need to recurse further
+	                if (file.isDirectory()) {
+	                    Map<String, Object> subDirStructure = new HashMap<>();
+	                    exploreDirectoryStructure(file, subDirStructure);  // Recursive call for subdirectories
+	                    structure.put(file.getName(), subDirStructure);  // Add subdirectory structure
+	                } else {
+	                    // If it's a file, just add it as a leaf node
+	                    structure.put(file.getName(), "file");
+	                }
+	            }
+	        }
+	    }
+
 }
