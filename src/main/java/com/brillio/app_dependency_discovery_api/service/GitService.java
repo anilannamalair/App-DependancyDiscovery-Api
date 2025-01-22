@@ -28,6 +28,7 @@ import com.brillio.app_dependency_discovery_api.utilities.ComplexityClassifier;
 import com.brillio.app_dependency_discovery_api.utilities.ErrorHandlingAndRetryLogic;
 import com.brillio.app_dependency_discovery_api.utilities.ExternalIntegrations;
 import com.brillio.app_dependency_discovery_api.utilities.GitRepoAnalyzer;
+import com.brillio.app_dependency_discovery_api.utilities.JsonToFileStructure;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfEnvironmentsOrDeployments;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfLibraries;
 import com.brillio.app_dependency_discovery_api.utilities.NumberOfParallelExecution;
@@ -49,6 +50,7 @@ public class GitService {
 	private String localDirectory;
 	private String jenkinsfilePath;
 	private Object serviceParamsMap; 
+	
 	//private GitRepoAnalyzer analyzer;
     Map<String, String> configFiles = new HashMap<>();
 	// Clone the repository into a folder named after the repo
@@ -333,7 +335,9 @@ public class GitService {
 	                    
 	                    //call git repo analyser
 	                    Map<String, Object> repoStructure = getRepoStructure(new File(localDirectory));
-	                    serviceDetails.put("repoStructure", repoStructure);
+	                    JsonToFileStructure jsonToFileStructure = new JsonToFileStructure();
+	                    List<String> filePaths = jsonToFileStructure.convertMapToFilePaths(repoStructure);
+	                    serviceDetails.put("repoStructure", filePaths);
 	                    
 	                    // Add serviceDetails to the main map
 	                    serviceParamsMap.put(serviceName, serviceDetails);
