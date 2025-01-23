@@ -26,8 +26,7 @@ public class VariablesFinder {
     }
 
     public static List<String[]> findLinesWithDollarSignEnvironmentVariables(String folderPath) {
-        System.out.println("---------------------"+folderPath);
-    	List<String[]> linesWithDollar = new ArrayList<>();
+          	List<String[]> linesWithDollar = new ArrayList<>();
 
         try {
             Files.walk(Paths.get(folderPath)).forEach(filePath -> {

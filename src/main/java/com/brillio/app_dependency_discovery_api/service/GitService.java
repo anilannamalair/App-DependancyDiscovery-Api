@@ -317,9 +317,11 @@ public class GitService {
 	            
 	            if (!jenkinsfiles.isEmpty()) {
 	                for (File jenkinsFile : jenkinsfiles) {
-	                    String serviceName = getServiceName(jenkinsFile);  // Determine service name based on Jenkinsfile directory
+	                    // Determine service name based on Jenkinsfile directory
 	                    String localDirectory = jenkinsFile.getParentFile().getAbsolutePath();
 	                    String jenkinsfilePath = jenkinsFile.getAbsolutePath();
+	                   // System.out.println("&&&"+localDirectory);
+	                    String serviceName = getServiceName(localDirectory,jenkinsFile,repoUrl); 
 
 	                    // Initialize service details map
 	                    Map<String, Object> serviceDetails = new HashMap<>();
@@ -538,12 +540,53 @@ public class GitService {
 	        }
 	        return jenkinsfiles;
 	    }
+		
+		private String getServiceName(String localDirectory,File jenkinsFile, String repoUrl) {
+		    // Step 1: Check if jenkinsFile is provided
+			
+		    if (jenkinsFile != null) {  
+		        // Get the parent directory of the Jenkinsfile
+		        File parentDir = jenkinsFile.getParentFile();
+		     
+		        // Check if the parent directory exists and is a valid directory
+		     if (localDirectory.contains("root")) {
+		    	 return parentDir.getName();
+		     }else {
+		    	 return extractServiceNameFromRepoUrl(repoUrl);
+		     }
+		    }
 
-	    private String getServiceName(File jenkinsFile) {
-	        // Extract service name based on the directory structure
-	        // For example, by checking the parent folder
-	        return jenkinsFile.getParentFile().getName();
-	    }
+		    // Step 2: If no Jenkinsfile, just fall back to repo URL
+		    if (repoUrl != null && !repoUrl.isEmpty()) {
+		        return extractServiceNameFromRepoUrl(repoUrl);
+		    }
+
+		    // If both jenkinsFile and repoUrl are null, throw an exception
+		    throw new IllegalArgumentException("Both Jenkinsfile and Repository URL cannot be null or empty.");
+		}
+
+		// Helper method to extract service name from repo URL
+		private String extractServiceNameFromRepoUrl(String repoUrl) {
+		    if (repoUrl == null || repoUrl.isEmpty()) {
+		        throw new IllegalArgumentException("Repository URL cannot be null or empty.");
+		    }
+
+		    // Extract the service name (last part after the last "/")
+		    String serviceName = repoUrl.substring(repoUrl.lastIndexOf("/") + 1);
+		    
+		    if (serviceName.isEmpty()) {
+		        throw new IllegalArgumentException("Invalid repository URL: no service name found.");
+		    }
+
+		    return serviceName;
+		}
+
+
+		    
+		    
+		
+
+
 
 
 
